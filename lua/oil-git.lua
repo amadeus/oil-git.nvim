@@ -290,6 +290,7 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 	local oil = require("oil")
 	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 	local current_dir = oil.get_current_dir(bufnr)
+	print("[DEBUG] apply_highlights_to_buffer current_dir:", current_dir, "lines:", #lines)
 
 	if not current_dir then
 		return
@@ -312,6 +313,9 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 			end
 			filepath = filepath .. entry.name
 			local status_code = git_status[filepath]
+			if i <= 3 then
+				print("[DEBUG] File:", entry.name, "filepath:", filepath, "status:", status_code)
+			end
 			local hl_group, symbol = get_highlight_group(status_code)
 
 			if hl_group and symbol then
