@@ -172,11 +172,13 @@ local function start_repo_timer(git_root)
 	local timer = vim.uv.new_timer()
 	if timer then
 		timer:start(config.git_refresh_interval, config.git_refresh_interval, function()
-			-- Update git status cache for this repository
-			-- Use git_root as the directory (get_git_status_async will find the git root again)
-			get_git_status_async(git_root, function()
-				-- Cache is updated inside get_git_status_async
-				-- No need to trigger highlight re-application here
+			vim.schedule(function()
+				-- Update git status cache for this repository
+				-- Use git_root as the directory (get_git_status_async will find the git root again)
+				get_git_status_async(git_root, function()
+					-- Cache is updated inside get_git_status_async
+					-- No need to trigger highlight re-application here
+				end)
 			end)
 		end)
 		git_repo_timers[git_root] = { timer = timer, buffer_count = 0 }
