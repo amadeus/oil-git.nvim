@@ -300,6 +300,10 @@ local function apply_git_highlights_fresh()
 		cache[git_root] = nil
 	end
 
+	-- ALSO clear buffer state to force re-application
+	buffer_states[bufnr] = nil
+	print("[oil-git] Cleared buffer state and cache for fresh check")
+
 	-- Now apply highlights (will fetch fresh data)
 	M._apply_git_highlights_impl()
 end
