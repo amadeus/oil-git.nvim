@@ -373,6 +373,8 @@ local function apply_git_highlights_fresh()
 		return
 	end
 
+	print("[DEBUG] git_root from current_dir:", git_root)
+
 	-- Register this buffer for timer management
 	register_oil_buffer(bufnr, git_root)
 
