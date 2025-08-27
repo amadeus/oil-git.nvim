@@ -307,8 +307,8 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 		if entry and entry.type == "file" then
 			-- Build filepath, ensuring no double slashes
 			local filepath = current_dir
-			if not filepath:match('/$') then
-				filepath = filepath .. '/'
+			if not filepath:match("/$") then
+				filepath = filepath .. "/"
 			end
 			filepath = filepath .. entry.name
 			local status_code = git_status[filepath]
@@ -433,16 +433,8 @@ M._apply_git_highlights_impl = function()
 				return
 			end
 
-			-- Check if directory or git status changed for this buffer
-			local current_state = buffer_states[bufnr] or {}
-			local prev_raw_output = current_state.raw_output or ""
-			local prev_current_dir = current_state.current_dir or ""
-
-			-- Check if we should skip re-applying highlights
-			if current_dir == prev_current_dir and raw_output == prev_raw_output then
-				-- Same directory and same git status, skip re-applying highlights
-				return
-			end
+			-- Always apply highlights from async callback (first time visit)
+			-- Don't check previous state here since this is fresh data
 			-- If we reach here: either directory changed OR git status changed - always re-apply
 
 			-- Update buffer state with both git status and directory
