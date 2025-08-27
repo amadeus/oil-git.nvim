@@ -307,6 +307,9 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 		if entry and entry.type == "file" then
 			local filepath = current_dir .. entry.name
 			local status_code = git_status[filepath]
+			if i <= 3 then -- Debug first 3 files only
+				print("[DEBUG] Looking for filepath:", filepath, "status:", status_code)
+			end
 			local hl_group, symbol = get_highlight_group(status_code)
 
 			if hl_group and symbol then
