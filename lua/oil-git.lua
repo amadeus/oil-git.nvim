@@ -528,6 +528,7 @@ local function initialize()
 
 	setup_highlights()
 	setup_autocmds()
+
 	initialized = true
 end
 
@@ -541,15 +542,6 @@ function M.setup(opts)
 
 	initialize()
 end
-
--- Auto-initialize when oil buffer is entered (if not already done)
-vim.api.nvim_create_autocmd("FileType", {
-	pattern = "oil",
-	callback = function()
-		initialize()
-	end,
-	group = vim.api.nvim_create_augroup("OilGitAutoInit", { clear = true }),
-})
 
 -- Manual refresh function
 function M.refresh()
@@ -585,6 +577,18 @@ function M.invalidate_cache(git_root)
 	if git_root and cache[git_root] then
 		cache[git_root] = nil
 	end
+end
+
+-- Auto-initialize when oil buffer is entered (only set up once)
+if not _G._oil_git_autocmd_setup then
+	vim.api.nvim_create_autocmd("FileType", {
+		pattern = "oil",
+		callback = function()
+			initialize()
+		end,
+		group = vim.api.nvim_create_augroup("OilGitAutoInit", { clear = true }),
+	})
+	_G._oil_git_autocmd_setup = true
 end
 
 return M
