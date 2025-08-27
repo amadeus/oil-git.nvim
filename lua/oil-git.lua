@@ -161,76 +161,20 @@ local function get_git_status_async(dir, callback)
 	end)
 end
 
--- Git repository timer management functions
-local function start_repo_timer(git_root)
-	if git_repo_timers[git_root] then
-		return -- Timer already exists
-	end
+local function clear_highlights(bufnr)
+	bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-	local timer = vim.uv.new_timer()
-	if timer then
-		timer:start(config.git_refresh_interval, config.git_refresh_interval, function()
-			vim.schedule(function()
-				-- Update git status cache for this repository
-				-- Use git_root as the directory (get_git_status_async will find the git root again)
-				get_git_status_async(git_root, function()
-					-- Cache is updated inside get_git_status_async
-					-- No need to trigger highlight re-application here
-				end)
-			end)
-		end)
-		git_repo_timers[git_root] = { timer = timer, buffer_count = 0 }
-	end
-end
-
-local function stop_repo_timer(git_root)
-	local repo_data = git_repo_timers[git_root]
-	if repo_data and repo_data.timer then
-		if not repo_data.timer:is_closing() then
-			repo_data.timer:stop()
-			repo_data.timer:close()
-		end
-		git_repo_timers[git_root] = nil
-	end
-end
-
-local function register_oil_buffer(bufnr, git_root)
-	if not git_root then
+	-- Only clear if buffer is still valid
+	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
 	end
 
-	-- Start timer if this is the first buffer for this repo
-	if not git_repo_timers[git_root] then
-		start_repo_timer(git_root)
-	end
+	-- Clear matches more efficiently
+	vim.fn.clearmatches()
 
-	-- Increment buffer count and track buffer
-	local repo_data = git_repo_timers[git_root]
-	if repo_data then
-		repo_data.buffer_count = repo_data.buffer_count + 1
-		active_oil_buffers[bufnr] = git_root
-	end
-end
-
-local function unregister_oil_buffer(bufnr)
-	local git_root = active_oil_buffers[bufnr]
-	if not git_root then
-		return
-	end
-
-	-- Decrement buffer count
-	local repo_data = git_repo_timers[git_root]
-	if repo_data then
-		repo_data.buffer_count = repo_data.buffer_count - 1
-
-		-- Stop timer if this was the last buffer for this repo
-		if repo_data.buffer_count <= 0 then
-			stop_repo_timer(git_root)
-		end
-	end
-
-	-- Remove buffer tracking
-	active_oil_buffers[bufnr] = nil
+	-- Clear existing virtual text
+	local ns_id = vim.api.nvim_create_namespace("oil_git_status")
+	vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 end
 
 local function get_highlight_group(status_code)
@@ -266,22 +210,6 @@ local function get_highlight_group(status_code)
 	end
 
 	return nil, nil
-end
-
-local function clear_highlights(bufnr)
-	bufnr = bufnr or vim.api.nvim_get_current_buf()
-
-	-- Only clear if buffer is still valid
-	if not vim.api.nvim_buf_is_valid(bufnr) then
-		return
-	end
-
-	-- Clear matches more efficiently
-	vim.fn.clearmatches()
-
-	-- Clear existing virtual text
-	local ns_id = vim.api.nvim_create_namespace("oil_git_status")
-	vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 end
 
 local function apply_highlights_to_buffer(bufnr, git_status)
@@ -334,6 +262,101 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 	for _, mark in ipairs(extmarks) do
 		vim.api.nvim_buf_set_extmark(bufnr, ns_id, mark[1], 0, mark[2])
 	end
+end
+
+-- Git repository timer management functions
+local function start_repo_timer(git_root)
+	if git_repo_timers[git_root] then
+		return -- Timer already exists
+	end
+
+	local timer = vim.uv.new_timer()
+	if timer then
+		timer:start(config.git_refresh_interval, config.git_refresh_interval, function()
+			vim.schedule(function()
+				-- Update git status cache for this repository and apply to visible buffers
+				get_git_status_async(git_root, function(git_status)
+					-- Cache is updated inside get_git_status_async
+					-- Now apply highlights to all oil buffers showing this repository
+					for bufnr, buffer_git_root in pairs(active_oil_buffers) do
+						if
+							buffer_git_root == git_root
+							and vim.api.nvim_buf_is_valid(bufnr)
+							and vim.bo[bufnr].filetype == "oil"
+						then
+							-- Check if buffer is currently visible in any window
+							local visible = false
+							for _, win in ipairs(vim.api.nvim_list_wins()) do
+								if vim.api.nvim_win_get_buf(win) == bufnr then
+									visible = true
+									break
+								end
+							end
+
+							if visible then
+								if next(git_status) == nil then
+									clear_highlights(bufnr)
+								else
+									apply_highlights_to_buffer(bufnr, git_status)
+								end
+							end
+						end
+					end
+				end)
+			end)
+		end)
+		git_repo_timers[git_root] = { timer = timer, buffer_count = 0 }
+	end
+end
+
+local function register_oil_buffer(bufnr, git_root)
+	if not git_root then
+		return
+	end
+
+	-- Start timer if this is the first buffer for this repo
+	if not git_repo_timers[git_root] then
+		start_repo_timer(git_root)
+	end
+
+	-- Increment buffer count and track buffer
+	local repo_data = git_repo_timers[git_root]
+	if repo_data then
+		repo_data.buffer_count = repo_data.buffer_count + 1
+		active_oil_buffers[bufnr] = git_root
+	end
+end
+
+local function stop_repo_timer(git_root)
+	local repo_data = git_repo_timers[git_root]
+	if repo_data and repo_data.timer then
+		if not repo_data.timer:is_closing() then
+			repo_data.timer:stop()
+			repo_data.timer:close()
+		end
+		git_repo_timers[git_root] = nil
+	end
+end
+
+local function unregister_oil_buffer(bufnr)
+	local git_root = active_oil_buffers[bufnr]
+	if not git_root then
+		return
+	end
+
+	-- Decrement buffer count
+	local repo_data = git_repo_timers[git_root]
+	if repo_data then
+		repo_data.buffer_count = repo_data.buffer_count - 1
+
+		-- Stop timer if this was the last buffer for this repo
+		if repo_data.buffer_count <= 0 then
+			stop_repo_timer(git_root)
+		end
+	end
+
+	-- Remove buffer tracking
+	active_oil_buffers[bufnr] = nil
 end
 
 local function apply_git_highlights_debounced()
