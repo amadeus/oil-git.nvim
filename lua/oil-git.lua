@@ -15,11 +15,15 @@ local active_jobs = {}
 local debounce_timer = nil
 -- Buffer-specific state tracking (raw git output strings)
 local buffer_states = {}
+-- Git repository timer management
+local git_repo_timers = {} -- [git_root] = { timer, buffer_count }
+local active_oil_buffers = {} -- [bufnr] = git_root
 
 -- Configuration
 local config = {
 	debounce_ms = 500,
 	max_cache_age = 30000, -- 30 seconds
+	git_refresh_interval = 2000, -- 2 seconds
 }
 
 local function setup_highlights()
@@ -159,6 +163,76 @@ local function get_git_status_async(dir, callback)
 	end)
 end
 
+-- Git repository timer management functions
+local function start_repo_timer(git_root)
+	if git_repo_timers[git_root] then
+		return -- Timer already exists
+	end
+
+	local timer = vim.uv.new_timer()
+	if timer then
+		timer:start(config.git_refresh_interval, config.git_refresh_interval, function()
+			-- Update git status cache for this repository
+			-- Use git_root as the directory (get_git_status_async will find the git root again)
+			get_git_status_async(git_root, function()
+				-- Cache is updated inside get_git_status_async
+				-- No need to trigger highlight re-application here
+			end)
+		end)
+		git_repo_timers[git_root] = { timer = timer, buffer_count = 0 }
+	end
+end
+
+local function stop_repo_timer(git_root)
+	local repo_data = git_repo_timers[git_root]
+	if repo_data and repo_data.timer then
+		if not repo_data.timer:is_closing() then
+			repo_data.timer:stop()
+			repo_data.timer:close()
+		end
+		git_repo_timers[git_root] = nil
+	end
+end
+
+local function register_oil_buffer(bufnr, git_root)
+	if not git_root then
+		return
+	end
+
+	-- Start timer if this is the first buffer for this repo
+	if not git_repo_timers[git_root] then
+		start_repo_timer(git_root)
+	end
+
+	-- Increment buffer count and track buffer
+	local repo_data = git_repo_timers[git_root]
+	if repo_data then
+		repo_data.buffer_count = repo_data.buffer_count + 1
+		active_oil_buffers[bufnr] = git_root
+	end
+end
+
+local function unregister_oil_buffer(bufnr)
+	local git_root = active_oil_buffers[bufnr]
+	if not git_root then
+		return
+	end
+
+	-- Decrement buffer count
+	local repo_data = git_repo_timers[git_root]
+	if repo_data then
+		repo_data.buffer_count = repo_data.buffer_count - 1
+
+		-- Stop timer if this was the last buffer for this repo
+		if repo_data.buffer_count <= 0 then
+			stop_repo_timer(git_root)
+		end
+	end
+
+	-- Remove buffer tracking
+	active_oil_buffers[bufnr] = nil
+end
+
 local function get_highlight_group(status_code)
 	if not status_code then
 		return nil, nil
@@ -281,7 +355,7 @@ local function apply_git_highlights_debounced()
 	end
 end
 
--- Force fresh git check (for BufEnter)
+-- Apply highlights immediately using cached data (for BufEnter)
 local function apply_git_highlights_fresh()
 	local oil = require("oil")
 	local bufnr = vim.api.nvim_get_current_buf()
@@ -291,17 +365,38 @@ local function apply_git_highlights_fresh()
 		return
 	end
 
-	-- Temporarily invalidate cache for this git root to force fresh check
 	local git_root = get_git_root(current_dir)
-	if git_root and cache[git_root] then
-		cache[git_root] = nil
+	if not git_root then
+		return
 	end
 
-	-- ALSO clear buffer state to force re-application
+	-- Register this buffer for timer management
+	register_oil_buffer(bufnr, git_root)
+
+	-- Clear buffer state to force re-application
 	buffer_states[bufnr] = nil
 
-	-- Now apply highlights (will fetch fresh data)
-	M._apply_git_highlights_impl()
+	-- Apply highlights immediately using cached data (if available)
+	if cache[git_root] and cache[git_root].data then
+		-- Use cached data immediately - no lag!
+		local cached_data = cache[git_root]
+		vim.schedule(function()
+			if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "oil" then
+				buffer_states[bufnr] = {
+					raw_output = cached_data.raw_output or "",
+					current_dir = current_dir,
+				}
+				if next(cached_data.data) == nil then
+					clear_highlights(bufnr)
+				else
+					apply_highlights_to_buffer(bufnr, cached_data.data)
+				end
+			end
+		end)
+	else
+		-- No cached data - fallback to async fetch (first time)
+		M._apply_git_highlights_impl()
+	end
 end
 
 -- Expose internal function for debounced calls
@@ -371,13 +466,14 @@ local function setup_autocmds()
 		end,
 	})
 
-	-- Clean up buffer state and highlights when buffers are deleted
+	-- Clean up buffer state, highlights, and timers when buffers are deleted
 	vim.api.nvim_create_autocmd("BufDelete", {
 		group = group,
 		pattern = "oil://*",
 		callback = function(args)
 			clear_highlights(args.buf)
 			buffer_states[args.buf] = nil
+			unregister_oil_buffer(args.buf)
 		end,
 	})
 
@@ -467,7 +563,33 @@ function M.refresh()
 	-- Clear all caches and buffer states to force fresh data
 	cache = {}
 	buffer_states = {}
-	apply_git_highlights_fresh()
+
+	-- Force immediate refresh for current buffer
+	local oil = require("oil")
+	local bufnr = vim.api.nvim_get_current_buf()
+	local current_dir = oil.get_current_dir(bufnr)
+	if current_dir then
+		local git_root = get_git_root(current_dir)
+		if git_root then
+			-- Trigger fresh git fetch for this repo
+			get_git_status_async(current_dir, function(git_status, raw_output)
+				-- Cache updated, now apply highlights
+				vim.schedule(function()
+					if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "oil" then
+						buffer_states[bufnr] = {
+							raw_output = raw_output,
+							current_dir = current_dir,
+						}
+						if next(git_status) == nil then
+							clear_highlights(bufnr)
+						else
+							apply_highlights_to_buffer(bufnr, git_status)
+						end
+					end
+				end)
+			end)
+		end
+	end
 end
 
 -- Function to clear cache for specific git root (useful for external tools)
