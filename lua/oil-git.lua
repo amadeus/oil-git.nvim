@@ -392,7 +392,9 @@ local function apply_git_highlights_fresh()
 		-- Use cached data immediately - no lag!
 		local cached_data = cache[git_root]
 		vim.schedule(function()
+			print("[DEBUG] In vim.schedule, bufnr:", bufnr, "valid:", vim.api.nvim_buf_is_valid(bufnr), "filetype:", vim.bo[bufnr].filetype)
 			if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "oil" then
+				print("[DEBUG] About to apply highlights, data count:", vim.tbl_count(cached_data.data))
 				buffer_states[bufnr] = {
 					raw_output = cached_data.raw_output or "",
 					current_dir = current_dir,
@@ -401,6 +403,7 @@ local function apply_git_highlights_fresh()
 					clear_highlights(bufnr)
 				else
 					apply_highlights_to_buffer(bufnr, cached_data.data)
+					print("[DEBUG] Applied highlights")
 				end
 			end
 		end)
