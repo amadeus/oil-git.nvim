@@ -361,7 +361,8 @@ end
 local function apply_git_highlights_fresh()
 	local oil = require("oil")
 	local bufnr = vim.api.nvim_get_current_buf()
-	local current_dir = oil.get_current_dir(bufnr)
+	local current_dir = oil.get_current_dir()
+	print("[DEBUG] apply_git_highlights_fresh current_dir:", current_dir)
 
 	if not current_dir or vim.bo[bufnr].filetype ~= "oil" then
 		return
