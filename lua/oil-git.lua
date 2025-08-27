@@ -13,8 +13,6 @@ local default_highlights = {
 local cache = {}
 local active_jobs = {}
 local debounce_timer = nil
--- Buffer-specific state tracking (raw git output strings)
-local buffer_states = {}
 -- Git repository timer management
 local git_repo_timers = {} -- [git_root] = { timer, buffer_count }
 local active_oil_buffers = {} -- [bufnr] = git_root
@@ -118,14 +116,14 @@ end
 local function get_git_status_async(dir, callback)
 	local git_root = get_git_root(dir)
 	if not git_root then
-		callback({}, "")
+		callback({})
 		return
 	end
 
 	-- Check cache first
 	if is_cache_valid(git_root) then
 		local cached = cache[git_root]
-		callback(cached.data, cached.raw_output or "")
+		callback(cached.data)
 		return
 	end
 
@@ -141,7 +139,7 @@ local function get_git_status_async(dir, callback)
 		active_jobs[git_root] = nil
 
 		if result.code ~= 0 then
-			callback({}, "")
+			callback({})
 			return
 		end
 
@@ -159,7 +157,7 @@ local function get_git_status_async(dir, callback)
 			}
 		end
 
-		callback(status, raw_output)
+		callback(status)
 	end)
 end
 
@@ -290,7 +288,6 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 	local oil = require("oil")
 	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 	local current_dir = oil.get_current_dir(bufnr)
-	print("[DEBUG] apply_highlights_to_buffer current_dir:", current_dir, "lines:", #lines)
 
 	if not current_dir then
 		return
@@ -313,9 +310,6 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 			end
 			filepath = filepath .. entry.name
 			local status_code = git_status[filepath]
-			if i <= 3 then
-				print("[DEBUG] File:", entry.name, "filepath:", filepath, "status:", status_code)
-			end
 			local hl_group, symbol = get_highlight_group(status_code)
 
 			if hl_group and symbol then
@@ -371,7 +365,6 @@ local function apply_git_highlights_fresh()
 	local oil = require("oil")
 	local bufnr = vim.api.nvim_get_current_buf()
 	local current_dir = oil.get_current_dir()
-	print("[DEBUG] apply_git_highlights_fresh current_dir:", current_dir)
 
 	if not current_dir or vim.bo[bufnr].filetype ~= "oil" then
 		return
@@ -382,26 +375,16 @@ local function apply_git_highlights_fresh()
 		return
 	end
 
-	print("[DEBUG] git_root from current_dir:", git_root)
-
 	-- Register this buffer for timer management
 	register_oil_buffer(bufnr, git_root)
 
-	-- Clear buffer state to force re-application
-	buffer_states[bufnr] = nil
-
 	-- Apply highlights immediately using cached data (if available)
 	if cache[git_root] and cache[git_root].data then
-		print("[DEBUG] Using cached data for", git_root)
 		-- Use cached data immediately - no lag!
 		local cached_data = cache[git_root]
 		-- Delay to let oil finish loading directory contents
 		vim.defer_fn(function()
 			if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "oil" then
-				buffer_states[bufnr] = {
-					raw_output = cached_data.raw_output or "",
-					current_dir = current_dir,
-				}
 				if next(cached_data.data) == nil then
 					clear_highlights(bufnr)
 				else
@@ -410,7 +393,6 @@ local function apply_git_highlights_fresh()
 			end
 		end, 50) -- 50ms delay to let oil load
 	else
-		print("[DEBUG] No cached data for", git_root, "- fetching async")
 		-- No cached data - fallback to async fetch (first time)
 		M._apply_git_highlights_impl()
 	end
@@ -428,13 +410,10 @@ M._apply_git_highlights_impl = function()
 	end
 
 	-- Use async git status
-	print("[DEBUG] Calling get_git_status_async for", current_dir)
-	get_git_status_async(current_dir, function(git_status, raw_output)
-		print("[DEBUG] git_status_async callback - file count:", vim.tbl_count(git_status), "raw length:", #raw_output)
+	get_git_status_async(current_dir, function(git_status)
 		vim.schedule(function()
 			-- Double-check buffer is still valid and is oil
 			if not vim.api.nvim_buf_is_valid(bufnr) or vim.bo[bufnr].filetype ~= "oil" then
-				print("[DEBUG] Buffer invalid in callback")
 				return
 			end
 
@@ -443,10 +422,6 @@ M._apply_git_highlights_impl = function()
 			-- If we reach here: either directory changed OR git status changed - always re-apply
 
 			-- Update buffer state with both git status and directory
-			buffer_states[bufnr] = {
-				raw_output = raw_output,
-				current_dir = current_dir,
-			}
 
 			if next(git_status) == nil then
 				clear_highlights(bufnr)
@@ -484,7 +459,6 @@ local function setup_autocmds()
 		pattern = "oil://*",
 		callback = function(args)
 			clear_highlights(args.buf)
-			buffer_states[args.buf] = nil
 			unregister_oil_buffer(args.buf)
 		end,
 	})
@@ -574,7 +548,6 @@ vim.api.nvim_create_autocmd("FileType", {
 function M.refresh()
 	-- Clear all caches and buffer states to force fresh data
 	cache = {}
-	buffer_states = {}
 
 	-- Force immediate refresh for current buffer
 	local oil = require("oil")
@@ -584,14 +557,10 @@ function M.refresh()
 		local git_root = get_git_root(current_dir)
 		if git_root then
 			-- Trigger fresh git fetch for this repo
-			get_git_status_async(current_dir, function(git_status, raw_output)
+			get_git_status_async(current_dir, function(git_status)
 				-- Cache updated, now apply highlights
 				vim.schedule(function()
 					if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "oil" then
-						buffer_states[bufnr] = {
-							raw_output = raw_output,
-							current_dir = current_dir,
-						}
 						if next(git_status) == nil then
 							clear_highlights(bufnr)
 						else
