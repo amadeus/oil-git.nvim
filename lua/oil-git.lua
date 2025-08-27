@@ -382,16 +382,20 @@ local function apply_git_highlights_fresh()
 	if cache[git_root] and cache[git_root].data then
 		-- Use cached data immediately - no lag!
 		local cached_data = cache[git_root]
-		-- Delay to let oil finish loading directory contents
-		vim.defer_fn(function()
+		-- Apply highlights immediately with content validation
+		vim.schedule(function()
 			if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].filetype == "oil" then
-				if next(cached_data.data) == nil then
-					clear_highlights(bufnr)
-				else
-					apply_highlights_to_buffer(bufnr, cached_data.data)
+				-- Verify content exists before applying highlights
+				local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+				if #lines > 1 then -- Content loaded
+					if next(cached_data.data) == nil then
+						clear_highlights(bufnr)
+					else
+						apply_highlights_to_buffer(bufnr, cached_data.data)
+					end
 				end
 			end
-		end, 50) -- 50ms delay to let oil load
+		end)
 	else
 		-- No cached data - fallback to async fetch (first time)
 		M._apply_git_highlights_impl()
@@ -441,6 +445,18 @@ local function setup_autocmds()
 		pattern = "oil://*",
 		callback = function()
 			apply_git_highlights_fresh()
+		end,
+	})
+
+	-- Secondary trigger: after buffer content is loaded
+	vim.api.nvim_create_autocmd("BufReadPost", {
+		group = group,
+		pattern = "oil://*",
+		callback = function()
+			-- Small delay to ensure oil has processed the content
+			vim.defer_fn(function()
+				apply_git_highlights_fresh()
+			end, 10) -- 10ms delay, much faster than 50ms
 		end,
 	})
 
