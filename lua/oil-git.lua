@@ -305,11 +305,13 @@ local function apply_highlights_to_buffer(bufnr, git_status)
 	for i, line in ipairs(lines) do
 		local entry = oil.get_entry_on_line(bufnr, i)
 		if entry and entry.type == "file" then
-			local filepath = current_dir .. entry.name
-			local status_code = git_status[filepath]
-			if i <= 3 then -- Debug first 3 files only
-				print("[DEBUG] Looking for filepath:", filepath, "status:", status_code)
+			-- Build filepath, ensuring no double slashes
+			local filepath = current_dir
+			if not filepath:match('/$') then
+				filepath = filepath .. '/'
 			end
+			filepath = filepath .. entry.name
+			local status_code = git_status[filepath]
 			local hl_group, symbol = get_highlight_group(status_code)
 
 			if hl_group and symbol then
