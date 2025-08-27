@@ -320,13 +320,16 @@ M._apply_git_highlights_impl = function()
 				return
 			end
 
-			-- Check if git status OR directory actually changed for this buffer
+			-- Check if directory or git status changed for this buffer
 			local current_state = buffer_states[bufnr] or {}
 			local prev_raw_output = current_state.raw_output or ""
 			local prev_current_dir = current_state.current_dir or ""
 
-			if raw_output == prev_raw_output and current_dir == prev_current_dir then
-				-- No change in either git status or directory, skip re-applying highlights
+			-- Always refresh if directory changed, regardless of git status
+			if current_dir ~= prev_current_dir then
+				-- Directory changed, proceed with highlight refresh
+			elseif raw_output == prev_raw_output then
+				-- Same directory and same git status, skip re-applying highlights
 				return
 			end
 
