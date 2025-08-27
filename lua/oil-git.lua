@@ -287,10 +287,7 @@ local function apply_git_highlights_fresh()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local current_dir = oil.get_current_dir(bufnr)
 
-	print("[oil-git] apply_git_highlights_fresh called, current_dir:", current_dir)
-
 	if not current_dir or vim.bo[bufnr].filetype ~= "oil" then
-		print("[oil-git] No current_dir or not oil buffer, returning")
 		return
 	end
 
@@ -302,7 +299,6 @@ local function apply_git_highlights_fresh()
 
 	-- ALSO clear buffer state to force re-application
 	buffer_states[bufnr] = nil
-	print("[oil-git] Cleared buffer state and cache for fresh check")
 
 	-- Now apply highlights (will fetch fresh data)
 	M._apply_git_highlights_impl()
@@ -319,15 +315,11 @@ M._apply_git_highlights_impl = function()
 		return
 	end
 
-	-- DEBUG: Log function call
-	print("[oil-git] apply_git_highlights_impl called for dir:", current_dir)
-	
 	-- Use async git status
 	get_git_status_async(current_dir, function(git_status, raw_output)
 		vim.schedule(function()
 			-- Double-check buffer is still valid and is oil
 			if not vim.api.nvim_buf_is_valid(bufnr) or vim.bo[bufnr].filetype ~= "oil" then
-				print("[oil-git] Buffer invalid, returning")
 				return
 			end
 
@@ -336,19 +328,11 @@ M._apply_git_highlights_impl = function()
 			local prev_raw_output = current_state.raw_output or ""
 			local prev_current_dir = current_state.current_dir or ""
 
-			print("[oil-git] Current dir:", current_dir)
-			print("[oil-git] Previous dir:", prev_current_dir)
-			print("[oil-git] Raw output length:", #raw_output)
-			print("[oil-git] Prev raw output length:", #prev_raw_output)
-			print("[oil-git] Git status file count:", vim.tbl_count(git_status))
-
 			-- Check if we should skip re-applying highlights
 			if current_dir == prev_current_dir and raw_output == prev_raw_output then
 				-- Same directory and same git status, skip re-applying highlights
-				print("[oil-git] SKIPPING - no changes detected")
 				return
 			end
-			print("[oil-git] APPLYING highlights")
 			-- If we reach here: either directory changed OR git status changed - always re-apply
 
 			-- Update buffer state with both git status and directory
@@ -374,7 +358,6 @@ local function setup_autocmds()
 		group = group,
 		pattern = "oil://*",
 		callback = function()
-			print("[oil-git] BufEnter triggered")
 			apply_git_highlights_fresh()
 		end,
 	})
