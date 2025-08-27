@@ -380,6 +380,7 @@ local function apply_git_highlights_fresh()
 
 	-- Apply highlights immediately using cached data (if available)
 	if cache[git_root] and cache[git_root].data then
+		print("[DEBUG] Using cached data for", git_root)
 		-- Use cached data immediately - no lag!
 		local cached_data = cache[git_root]
 		vim.schedule(function()
@@ -396,6 +397,7 @@ local function apply_git_highlights_fresh()
 			end
 		end)
 	else
+		print("[DEBUG] No cached data for", git_root, "- fetching async")
 		-- No cached data - fallback to async fetch (first time)
 		M._apply_git_highlights_impl()
 	end
