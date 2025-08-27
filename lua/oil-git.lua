@@ -415,10 +415,13 @@ M._apply_git_highlights_impl = function()
 	end
 
 	-- Use async git status
+	print("[DEBUG] Calling get_git_status_async for", current_dir)
 	get_git_status_async(current_dir, function(git_status, raw_output)
+		print("[DEBUG] git_status_async callback - file count:", vim.tbl_count(git_status), "raw length:", #raw_output)
 		vim.schedule(function()
 			-- Double-check buffer is still valid and is oil
 			if not vim.api.nvim_buf_is_valid(bufnr) or vim.bo[bufnr].filetype ~= "oil" then
+				print("[DEBUG] Buffer invalid in callback")
 				return
 			end
 
