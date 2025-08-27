@@ -460,15 +460,6 @@ local function setup_autocmds()
 		end,
 	})
 
-	-- Clear highlights when leaving oil buffers
-	vim.api.nvim_create_autocmd("BufLeave", {
-		group = group,
-		pattern = "oil://*",
-		callback = function(args)
-			clear_highlights(args.buf)
-		end,
-	})
-
 	-- Clean up buffer state, highlights, and timers when buffers are deleted
 	vim.api.nvim_create_autocmd("BufDelete", {
 		group = group,
